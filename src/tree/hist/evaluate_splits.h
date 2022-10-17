@@ -38,7 +38,7 @@ template <typename GradientSumT, typename ExpandEntry> class HistEvaluator {
   int32_t n_threads_ {0};
   FeatureInteractionConstraintHost interaction_constraints_;
   std::vector<NodeEntry> snode_;
-
+  unsigned int const_index_{0}; // for cycle boosting
   // if sum of statistics for non-missing values in the node
   // is equal to sum of statistics for all values:
   // then - there are no missing values
@@ -208,8 +208,27 @@ template <typename GradientSumT, typename ExpandEntry> class HistEvaluator {
         entries.size());
     for (size_t nidx_in_set = 0; nidx_in_set < entries.size(); ++nidx_in_set) {
       auto nidx = entries[nidx_in_set].nid;
-      features[nidx_in_set] =
-          column_sampler_->GetFeatureSet(tree.GetDepth(nidx));
+      // if we have interactiosn constraints and colsample by tree
+      // we will do random sampling by interactions, or cycle boosting on interactions
+      if ((interaction_constraints_.interaction_constraints_.size() > 0) && (param_.colsample_bytree<1)){
+        std::unordered_set<bst_feature_t> cons;
+        if (column_sampler_->colsample_bytree_<0.5){
+         auto feat_set = column_sampler_->GetFeatureSet(tree.GetDepth(nidx));
+         cons = interaction_constraints_.interaction_constraints_[feat_set->HostVector()[0]];
+        }
+        else{// use cycle boosting
+        cons = interaction_constraints_.interaction_constraints_[const_index_];
+        }
+	auto p_new_features = std::make_shared<HostDeviceVector<bst_feature_t>>();
+	auto &new_features = *p_new_features;
+	new_features.Resize(cons.size());
+	std::copy(cons.begin(), cons.end(),
+		      new_features.HostVector().begin());
+        features[nidx_in_set] = p_new_features;
+      }
+      else{
+        features[nidx_in_set] = column_sampler_->GetFeatureSet(tree.GetDepth(nidx));
+      }
     }
     CHECK(!features.empty());
     const size_t grain_size =
@@ -366,8 +385,16 @@ template <typename GradientSumT, typename ExpandEntry> class HistEvaluator {
         tree_evaluator_{param, static_cast<bst_feature_t>(info.num_col_), GenericParameter::kCpuId},
         n_threads_{n_threads} {
     interaction_constraints_.Configure(param, info.num_col_);
+    if ((interaction_constraints_.interaction_constraints_.size() > 0) && (param_.colsample_bytree<1)){
+      column_sampler_->Init(interaction_constraints_.interaction_constraints_.size() , info.feature_weights.HostVector(),1.0f, 1.0f, param_.colsample_bytree);
+      static unsigned int  stata_const_index_{0}; // for cycle boosting
+      stata_const_index_= (stata_const_index_+1) % interaction_constraints_.interaction_constraints_.size();
+      const_index_ = stata_const_index_;
+    }
+    else{
     column_sampler_->Init(info.num_col_, info.feature_weights.HostVector(), param_.colsample_bynode,
                           param_.colsample_bylevel, param_.colsample_bytree);
+   }
   }
 };
 

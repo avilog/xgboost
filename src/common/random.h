@@ -122,11 +122,11 @@ class ColumnSampler {
   std::map<int, std::shared_ptr<HostDeviceVector<bst_feature_t>>> feature_set_level_;
   std::vector<float> feature_weights_;
   float colsample_bylevel_{1.0f};
-  float colsample_bytree_{1.0f};
   float colsample_bynode_{1.0f};
   GlobalRandomEngine rng_;
 
  public:
+  float colsample_bytree_{1.0f};
   std::shared_ptr<HostDeviceVector<bst_feature_t>> ColSample(
       std::shared_ptr<HostDeviceVector<bst_feature_t>> p_features, float colsample);
   /**
